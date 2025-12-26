@@ -1,137 +1,108 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
-# @Time    : 2019/10/23 15:27
-# @Author  : Alex Kwan
-# @Email   : gjy-alex@hotmail.com
-# @File    : main.py
-import m3u8
-import utils.tools
-import utils.db
+import asyncio
+import aiohttp
 import time
 import os
+from datetime import datetime
 
-class Iptv(object):
-    playlist_file = 'playlists/'
-    m3u8_file_path = 'output/'
-    delay_threshold = 5000
+# --- CONFIGURATION ---
+PLAYLIST_DIR = 'playlists/'
+OUTPUT_DIR = 'output/'
+DELAY_THRESHOLD = 5000  # ms (5 seconds)
+CONCURRENT_LIMIT = 50   # Max simultaneous checks
 
-    def __init__(self):
-        self.T = utils.tools.Tools()
-        self.DB = utils.db.DataBase()
-        self.now = int(time.time() * 1000)
-
-    def getPlaylist(self):
-
-        '''
-        :return playList:
-        #从playlist文件夹读取文件，反馈urlList。
-        #目前支持两类格式:
-        #1、m3u文件格式
-        #2、.txt格式，但内容必须是如下格式：
-        战旗柯南1,http://dlhls.cdn.zhanqi.tv/zqlive/69410_SgVxl.m3u8
-        战旗柯南2,http://alhls.cdn.zhanqi.tv/zqlive/219628_O3y9l.m3u8
-        '''
-        playList=[]
-        #读取文件
-        path = os.listdir(self.playlist_file)
-        for p in path:
-            if os.path.isfile(self.playlist_file + p):
-                if p[-4:]=='.txt':
-                    with open(self.playlist_file + p,'r') as f:
-                        lines = f.readlines()
-                        total = len(lines)
-                        for i in range(0, total):
-                            line = lines[i].strip('\n')
-                            item = line.split(',', 1)
-                            if len(item)==2:
-                                data = {
-                                    'title': item[0],
-                                    'url': item[1],
-                                }
-                                playList.append(data)
-                elif p[-4:]=='.m3u':
-
-                    try:
-                        m3u8_obj = m3u8.load(self.playlist_file + p)
-                        total = len(m3u8_obj.segments)
-                        for i in range(0, total):
-                            tmp_title = m3u8_obj.segments[i].title
-                            tmp_url = m3u8_obj.segments[i].uri
-                            data={
-                                'title': tmp_title,
-                                'url': tmp_url,
-                            }
-                            playList.append(data)
-                    except Exception as e:
-                        print(e)
-        return playList
-
-    def checkPlayList(self,playList):
-        '''
-        :return: True or False
-        验证每一个直播源；对于有效直播源才插入数据库；同时，如果数据库中存在title相同的记录，则比较DELAY时间，保存DELAY小的。
-        '''
-        total=len(playList)
-        if (total<=0): return False
-        for i in range(0,total):
-            tmp_title = playList[i]['title']
-            tmp_url =playList[i]['url']
-            print('Checking[ %s / %s ]:%s' % (i, total, tmp_title))
-
-            netstat = self.T.chkPlayable(tmp_url)
-            #print(netstat)
-            if netstat > 0 and netstat < self.delay_threshold:
-                data = {
-                    'title': tmp_title,
-                    'url': tmp_url,
-                    'delay': netstat,
-                    'updatetime': self.now,
-                }
-                self.addData(data)
-
+async def check_stream(session, name, url):
+    """
+    Checks a single stream URL for connectivity and latency.
+    """
+    start_time = time.time()
+    try:
+        # HEAD request is faster as it doesn't download the actual audio data
+        async with session.head(url, timeout=10, allow_redirects=True) as response:
+            latency = int((time.time() - start_time) * 1000)
+            
+            # Status codes below 400 are generally successful connections
+            if response.status < 400:
+                return {"name": name, "url": url, "latency": latency, "status": "Online"}
             else:
-                pass
+                return {"name": name, "url": url, "latency": latency, "status": f"Error {response.status}"}
+    except Exception:
+        return {"name": name, "url": url, "latency": 9999, "status": "Offline"}
 
-    def addData (self, data) :
-        sql = "SELECT * FROM %s WHERE title= '%s'" % (self.DB.table, data['title'])
-        try:
-            result = self.DB.query(sql)
-            #print(result)
-            if len(result) == 0 :
-                self.DB.insert(data)
-            else :
-                old_delay=result[0][3]
-                if int(data['delay']) < int(old_delay):
-                    id = result[0][0]
-                    self.DB.edit(id, data)
-        except Exception as e:
-            print(e)
+async def process_playlist(file_path):
+    """
+    Reads a playlist file and extracts names and URLs.
+    Supports basic M3U and simple TXT formats.
+    """
+    tasks = []
+    # Professional User-Agent helps prevent blocks from hosting providers like radioca.st
+    headers = {'User-Agent': 'StreamStabilityMonitor/1.0 (Broadcaster Quality Tool)'}
+    
+    # TCPConnector limit prevents your local machine from being flagged as a DoS attack
+    connector = aiohttp.TCPConnector(limit=CONCURRENT_LIMIT)
+    
+    async with aiohttp.ClientSession(headers=headers, connector=connector) as session:
+        if not os.path.exists(file_path):
+            return []
 
-    def writeM3U8File(self):
-        print(self.m3u8_file_path)
-        self.T.mkdir('output')
-        sql = "SELECT * FROM %s ORDER BY delay DESC" % (self.DB.table)
+        with open(file_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+            
+        current_name = "Unknown Station"
+        for line in lines:
+            line = line.strip()
+            if not line: continue
+            
+            if line.startswith("#EXTINF"):
+                # Extracts station name from #EXTINF:0,Station Name
+                current_name = line.split(',')[-1]
+            elif not line.startswith("#"):
+                tasks.append(check_stream(session, current_name, line))
+        
+        return await asyncio.gather(*tasks)
 
-        try:
-            result = self.DB.query(sql)
-            if len(result)>0 :
-                output_file=self.m3u8_file_path+ str(time.time()*1000) +'.m3u'
-                with open (output_file,'w') as f:
-                    f.write("#EXTM3U\n")
-                    for item in result:
-                        f.write("#EXTINF:-1, %s\n" % (item[1]))
-                        f.write("%s\n" % (item[2]))
-                print('共获得 %s 个有效直播源！' %(len(result)))
-            else:
-                print('无有效直播源！')
-                pass
-        except Exception as e:
-            print(e)
+def save_results(results):
+    """
+    Filters online streams by latency and saves to a new M3U file in /output.
+    """
+    if not os.path.exists(OUTPUT_DIR):
+        os.makedirs(OUTPUT_DIR)
+        
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{OUTPUT_DIR}verified_streams_{timestamp}.m3u"
+    
+    with open(filename, 'w', encoding='utf-8') as f:
+        f.write("#EXTM3U\n")
+        count = 0
+        for r in results:
+            if r['status'] == "Online" and r['latency'] <= DELAY_THRESHOLD:
+                f.write(f"#EXTINF:-1,{r['name']} ({r['latency']}ms)\n")
+                f.write(f"{r['url']}\n")
+                count += 1
+                
+    print(f"✅ SUCCESS: {count} streams verified and saved to {filename}")
 
-if __name__ == '__main__':
-    iptv=Iptv()
-    print('开始......')
-    iptv.checkPlayList(iptv.getPlaylist())
-    iptv.writeM3U8File()
-    print('结束.....')
+async def main():
+    print("🚀 Stream Stability Monitor | Initializing...")
+    
+    if not os.path.exists(PLAYLIST_DIR):
+        os.makedirs(PLAYLIST_DIR)
+        print(f"Created '{PLAYLIST_DIR}' folder. Please add your .txt or .m3u files there.")
+        return
+
+    files = [f for f in os.listdir(PLAYLIST_DIR) if f.endswith(('.m3u', '.txt'))]
+    
+    if not files:
+        print(f"No playlists found in {PLAYLIST_DIR}. Add a file (e.g., lbi.txt) to begin.")
+        return
+
+    for playlist in files:
+        print(f"🔍 Checking: {playlist}...")
+        results = await process_playlist(os.path.join(PLAYLIST_DIR, playlist))
+        if results:
+            save_results(results)
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nMonitor stopped by user.")
