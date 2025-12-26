@@ -1,31 +1,45 @@
-# IPTV 直播源批量检测程序
+<pre>
 
-## 简介
+📡 Stream Stability Monitor
+A high-performance, asynchronous stream health validator designed for professional broadcasters.
 
-### 主要功能
-对直播源进行批量检测，将优质有效的直播源生成M3U文件
-- 将待检测的直播源文件放置到playlists文件夹下：  
-  - 支持多个文件  
-  - 目前支持m3u格式的文件和txt格式，详见playlists文件下的示例
-- 直播源检测原理  
-  - 对每个连接进行测试, 同时记录当前网络对该连接的延迟.（参考了https://github.com/EvilCult/iptv-m3u-maker,致谢！）  
-  - 对于同一个频道（titile同名），仅保留延迟最低的一个直播源
-- 针对有效的优质直播源，将其输出为 **m3u** 文件，文件名称是当前时间。
+Originally forked from AlexKwan1981, this version has been modernized for the 2025 broadcast landscape with English localization, HTTPS/TLS support, and optimized latency detection.
 
-## 项目使用方法
+🚀 Key Features
+Parallel Asynchronous Checking: Uses aiohttp to check hundreds of streams simultaneously, minimizing total execution time.
 
-本项目基于 **python3.7** 进行开发 
-- 主要参数  
-playlist_file = 'playlists/'  
-直播源源文件存放路径
-m3u8_file_path = 'output/'  
-检测后的M3U文件存放路径
-delay_threshold = 5000  
-响应延迟阈值，单位毫秒。超过这个阈值则认为直播源质量较差
-- 在ouput文件下放置待检测的直播源清单  
-- python main.py
+Smart Latency Thresholds: Categorizes stream health based on custom millisecond response times.
 
-## 待优化内容
-- sqllite入库部分代码尚未优化
-- 对于部分m3u格式的属性标签上不支持，存在读入m3u文件异常的情况
-- 目前生成m3u文件尚不支持分组标签 
+Broadcaster-Grade Validation: Specifically optimized for ICY (Shoutcast/Icecast) and HLS (m3u8) endpoints.
+
+Automated M3U Generation: Outputs timestamped, high-quality playlists containing only verified, low-latency links.
+
+English Localization: Fully translated UI and console logging for global dev teams.
+
+🛠️ Installation & Setup
+Requires Python 3.10+ for modern asyncio support.
+
+Clone the repository:
+
+Bash
+
+git clone [https://github.com/YourUsername/stream-stability-monitor.git](https://github.com/YourUsername/stream-stability-monitor.git)
+cd stream-stability-monitor
+Install dependencies:
+
+Bash
+
+pip install -r requirements.txt
+📈 Usage
+Place your .m3u or .txt source files in the /playlists directory, then run:
+
+Bash
+
+python main.py
+Results will be generated in the /output folder, filtered by your delay_threshold (default: 5000ms).
+
+🌍 About the Author
+Maintained by the technical lead of lbi Radio Lebanon. This tool is part of our commitment to ensuring 99.9% stream availability and low-latency delivery for our listeners worldwide.
+
+⚖️ License
+This project is licensed under the MIT License - see the LICENSE file for details. </pre>
