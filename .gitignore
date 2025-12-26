@@ -1,0 +1,22 @@
+# --- Python Specific ---
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+build/
+dist/
+
+# --- IDE Specific ---
+.vscode/
+.idea/
+*.swp
+*.iml
+
+# --- Project Specific ---
+output/
+*.log
+
+# --- OS Specific ---
+.DS_Store
+Thumbs.db
